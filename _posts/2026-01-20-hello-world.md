@@ -2,7 +2,7 @@
 title: Hello World!
 date: 2026-01-20
 categories: [Blogging]
-tags: [blog, personal page, github, jekyll]
+tags: [personal blog, github, jekyll]
 author: Mohamad Helmi
 description: "Just starting out—no promises, but I’ll try to keep this updated with my hacking journey."
 ---
