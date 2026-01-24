@@ -48,6 +48,18 @@ Not despite it. Just… *with it*. Like any other part of me.
 ![Template Blog](/assets/img/posts/2026-01-20-hello-world/hiking.jpg){: height="300"}
 _I even can hiking laa wehh_
 
+---
+
+### Why hacking?
+
+You see, when I first started to post something hacking(ish) stuff, most of friends and even my parent said like, "Are you want to commit a crime?"
+
+Well, not really.
+
+Hmm, how do I say this without sounding weird?
+
+I just love to break stuff. That's all I guess😅.
+
 I think that's all for my first blog.
 
 Thanks for dropping by.  
