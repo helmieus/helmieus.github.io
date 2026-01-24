@@ -16,7 +16,7 @@ timezone:
 
 title: Mohamad Helmi # the main title
 
-tagline: From Laravel to Lateral Movement # it will display as the subtitle
+tagline: Network Engineering Student with a passion for offensive security # it will display as the subtitle
 
 description: >- # used by seo meta and the atom feed
   Hi, I'm Helmi,
@@ -101,7 +101,7 @@ theme_mode: # [light | dark]
 cdn:
 
 # the avatar on sidebar, support local or CORS resources
-avatar: https://media.licdn.com/dms/image/v2/D5603AQG72CyDpCb4WA/profile-displayphoto-shrink_800_800/profile-displayphoto-shrink_800_800/0/1731862225105?e=1770854400&v=beta&t=KiYDGvOVehnHhn_4GxFr9Jd6GlF5sXlKqJJIDe_mLYg
+avatar: /assets/img/personal/profile.jpg # string, local or CORS resources
 
 # The URL of the site-wide social preview image used in SEO `og:image` meta tag.
 # It can be overridden by a customized `page.image` in front matter.
