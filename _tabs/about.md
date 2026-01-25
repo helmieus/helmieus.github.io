@@ -21,7 +21,7 @@ _That's me travel around_
 
 This blog is my digital notebook — where I document my learning, mistakes, and small wins. No fluff. Just real progress.
 
-> “Firewalls don’t care how I walk. They only care if you know the right command.”  
+> “Firewalls don’t care how I talk. They only care if you know the right command.”  
 
 Thanks for stopping by.  
 Stay curious. Stay kind. And keep hacking — the ethical way. 💙
