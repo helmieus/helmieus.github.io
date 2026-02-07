@@ -254,7 +254,7 @@ The certificate:
 
 The classification of the vulnerability:
 
-![vulnerability](/assets\img\posts\2026-02-07-arasaka-writeup\vulnerability.png)
+![vulnerability](/assets/img/posts/2026-02-07-arasaka-writeup/vulnerability.png)
 
 The details of the misconfiguration and how we leverage it can be found [here](https://github.com/ly4k/Certipy/wiki/06-%E2%80%90-Privilege-Escalation#esc1-enrollee-supplied-subject-for-client-authentication)
 
