@@ -139,6 +139,107 @@ The lesson: always enumerate UPnP description XML before assuming a device expos
 
 ---
 
+## Espresso (Hardware)
+
+Someone leaked the new Espresso firmware, can you try to figure out what it does?
+
+### Enumeration
+
+The first step is understanding what we are dealing with. Running `file` on the binary returns `data` — no recognizable format. Checking the size reveals a 4 MB image, which is a typical flash dump size for embedded devices.
+
+![Enum espresso](/assets/img/posts/2026-06-08-HackTheBox-challenges/espresso_enum.png)
+
+Extracting all printable strings from the binary gives us strong context about the firmware's origin:
+
+```bash
+strings firmware.bin > output.txt
+head output.txt
+```
+
+![strings output](/assets/img/posts/2026-06-08-HackTheBox-challenges/output_firmware.png)
+
+The strings reveal:
+- Version: `v6.1-dev-2748-g490691bc61`, dated `Feb 28 2026`
+- ESP-IDF bootloader messages (partition table, OTA slots, flash map)
+- ESP32 component paths referencing `//IDF/components/bootloader_support/...`
+
+This is an **ESP32 firmware flash dump**, built on Espressif's ESP-IDF framework. The binary is mostly empty flash (`0xFF` bytes — approximately 96% of the image), with actual firmware data concentrated in the lower offsets.
+
+Notably, one string stands out in the output:
+
+```
+flag did not generate correctly.
+```
+
+This hints that the flag exists in the binary but is not stored in plaintext — it has been obfuscated.
+
+### Analysis
+
+Since `strings` does not reveal the flag directly, the obfuscation is likely simple — single-byte XOR is the most common technique used in embedded CTF challenges.
+
+The approach:
+1. Scan every byte offset in the binary
+2. Assume the known plaintext `HTB{` starts at that offset
+3. Derive the XOR key from the first byte: `key = data[offset] ^ ord('H')`
+4. Decode 4 bytes with that key and verify it matches `HTB{`
+5. If it matches, decode a 128-byte window and extract the full flag with a regex
+
+```python
+import sys, os, glob, re
+
+def main():
+    if len(sys.argv) >= 2:
+        fw_path = sys.argv[1]
+    else:
+        cands = ["firmware.bin", "factory.bin", "app.bin"] + glob.glob("*.bin")
+        fw_path = next((c for c in cands if os.path.isfile(c)), None)
+    if not fw_path or not os.path.isfile(fw_path):
+        sys.exit(1)
+
+    data = open(fw_path, "rb").read()
+    plain = b"HTB{"
+
+    for off in range(0, len(data) - 4):
+        key = data[off] ^ plain[0]
+        if bytes(b ^ key for b in data[off:off+4]) != plain:
+            continue
+        window = bytes(b ^ key for b in data[off:off+128])
+        m = re.match(rb"HTB\{[ -~]*?\}", window)
+        if m:
+            print(m.group().decode())
+            return
+
+if __name__ == "__main__":
+    main()
+```
+
+Running the script:
+
+```bash
+python3 solve.py firmware.bin
+```
+
+### Finding
+
+The flag is found at offset `0x17688` inside the binary. The XOR key is a single byte: `0x42` (ASCII `B`). Decoding the surrounding bytes confirms the pattern — the entire surrounding region is also XOR'd with the same key, filling the non-flag bytes with repeating `B` values.
+
+```
+Raw bytes at 0x17688:  0a 16 00 39 71 2f 37 2e 76 36 2b ...
+XOR key 0x42 applied:  H  T  B  {  3  m  u  l  4  t  i ...
+Decoded:               HTB{FLAG}
+```
+
+### Key Takeaways
+
+This challenge demonstrates a classic embedded firmware reversing pattern:
+
+- Flash dumps are mostly empty (`0xFF`) — actual code and data occupy a small region
+- `strings` is always the first recon step on a binary blob, even when it won't reveal the answer directly — context clues (SDK version, error messages) narrow down the attack surface
+- Single-byte XOR is the simplest obfuscation that defeats `strings`, but is trivially broken with a known-plaintext attack using the flag prefix `HTB{`
+- The solve script is portable: it auto-discovers the binary if no argument is provided, and uses a sliding window + regex to handle variable-length flags cleanly
+
+---
+
 ## Steel Mountain (ICS)
 Steel Mountain is a secure data storage facility serving major corporations. A BACnet device has already been planted inside their network. The objective is to destroy the tape backups stored in the Tape Storage Room by manipulating the building automation system through the exposed BACnet interface.
 
