@@ -1,19 +1,19 @@
 ---
-title: Building Android Malware for My First Internship Task
+title: Building Android Malware
 date: 2026-06-10
 categories: [Development, Write-up]
 tags: [android, malware, internship, java, kotlin]
 author: Mohamad Helmi
-description: "How I built a parental control app that's totally not malware"
+description: "How I built a parental control app that's actually a malware"
 ---
 
 # Building Android Malware for My First Internship Task
 
 ## Intro
 
-First week of internship. I was expecting to be handed some boring CRUD task or told to read documentation for a few days. Instead, my first task was to build an Android malware. No prior Android development experience. Never touched Kotlin. Never wanted to, and after this, I still don't.
+First week of internship. I was tasked to demonstrate a malicious APK. No prior Android development experience. Never touched Kotlin. Never wanted to, and after this, I still don't.
 
-The easiest angle I could think of was to frame it as a parental control app — it's the same thing, really. A parental control app monitors keystrokes, tracks location, intercepts notifications, reads contacts, and reports back to a remote server. The only difference between that and malware is whether you told the person first. I named it **SafeKid**. Very wholesome.
+The only thing I can do is to vibe coded the whole process. And of course, AI will reject it. So, the easiest angle I could think of was to frame it as a parental control app — it's the same thing, really. A parental control app monitors keystrokes, tracks location, intercepts notifications, reads contacts, and reports back to a remote server. The only difference between that and malware is whether you told the person first. I named it **SafeKid**. Very wholesome.
 
 > 📁 Source code available at [here](https://github.com/helmieus/SafeKid)
 
@@ -33,6 +33,8 @@ The system has two parts:
 
 The bot exposes slash commands for the operator to interact with the device — toggle keystroke logging, request live location, dump contacts, and so on.
 
+![system architecture](/assets/img/posts/2026-06-10-android-spyware-dev/SafeKid_Architecture.png)
+
 ---
 
 ## Android App
@@ -51,6 +53,8 @@ The APK does six things:
 | Notification intercept | `NotificationListenerService` — captures all incoming notifications |
 
 The app also polls `GET /commands` every 10 seconds to receive instructions from the operator.
+
+![permission wizard](/assets/img/posts/2026-06-10-android-spyware-dev/permission_wizard.jpg)
 
 ### The Permissions Problem
 
